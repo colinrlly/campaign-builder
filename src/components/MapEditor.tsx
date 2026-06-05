@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { MAP_BUCKET } from "@/lib/storage";
+import { readImageSize } from "@/lib/image";
 import type { Article, Location, Map, Point } from "@/lib/types";
 import MapCanvas from "./MapCanvas";
 import MarkdownView from "./MarkdownView";
@@ -26,6 +28,14 @@ export default function MapEditor({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [drawing, setDrawing] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+
+  // Image is replaceable in place; locations are kept (normalized coords).
+  const [image, setImage] = useState({
+    image_path: map.image_path,
+    natural_width: map.natural_width,
+    natural_height: map.natural_height,
+  });
+  const replaceInputRef = useRef<HTMLInputElement>(null);
 
   // Draft fields for the currently selected location/article.
   const [label, setLabel] = useState("");
@@ -81,6 +91,54 @@ export default function MapEditor({
     setSelectedId((loc as Location).id);
     setDrawing(false);
     setStatus(null);
+  }
+
+  async function handleReplaceImage(file: File) {
+    setStatus("Uploading new image…");
+    try {
+      const { width, height } = await readImageSize(file);
+      const ext = file.name.split(".").pop()?.toLowerCase() || "png";
+      const path = `${crypto.randomUUID()}.${ext}`;
+
+      const { error: upErr } = await supabase.storage
+        .from(MAP_BUCKET)
+        .upload(path, file, { cacheControl: "3600", upsert: false });
+      if (upErr) throw new Error(`Image upload: ${upErr.message}`);
+
+      const { error: updErr } = await supabase
+        .from("maps")
+        .update({
+          image_path: path,
+          natural_width: width,
+          natural_height: height,
+        })
+        .eq("id", map.id);
+      if (updErr) throw new Error(`Update map: ${updErr.message}`);
+
+      const oldPath = image.image_path;
+      const aspectChanged =
+        Math.abs(
+          width / height - image.natural_width / image.natural_height,
+        ) > 0.01;
+
+      setImage({ image_path: path, natural_width: width, natural_height: height });
+
+      // Best-effort cleanup of the previous image.
+      if (oldPath && oldPath !== path) {
+        await supabase.storage.from(MAP_BUCKET).remove([oldPath]);
+      }
+
+      setStatus(
+        aspectChanged
+          ? "Replaced — aspect ratio changed, existing shapes may shift."
+          : "Image replaced ✓",
+      );
+      setTimeout(() => setStatus(null), aspectChanged ? 6000 : 2000);
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : "Replace failed");
+    } finally {
+      if (replaceInputRef.current) replaceInputRef.current.value = "";
+    }
   }
 
   async function handleSave() {
@@ -150,6 +208,24 @@ export default function MapEditor({
           >
             {drawing ? "Drawing… (click points)" : "Draw location"}
           </button>
+          <button
+            type="button"
+            onClick={() => replaceInputRef.current?.click()}
+            className="rounded-md bg-slate-800/90 px-3 py-1.5 text-sm font-medium text-slate-100 ring-1 ring-slate-600 transition hover:bg-slate-700"
+            title="Replace the map image (keeps all locations)"
+          >
+            Replace image
+          </button>
+          <input
+            ref={replaceInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleReplaceImage(file);
+            }}
+          />
           {status && (
             <span className="rounded bg-slate-900/90 px-2 py-1 text-xs text-slate-300 ring-1 ring-slate-700">
               {status}
@@ -157,7 +233,7 @@ export default function MapEditor({
           )}
         </div>
         <MapCanvas
-          map={map}
+          map={{ ...map, ...image }}
           locations={locations}
           mode="edit"
           drawing={drawing}

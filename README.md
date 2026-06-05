@@ -91,13 +91,13 @@ map, and start drawing locations.
 4. **Save**. Use **Preview** to see rendered markdown, or **Preview** in the
    header to open the player viewer.
 
-When you re-export your Inkarnate map with new detail, re-upload it as a new
-map (keeping the same aspect ratio). Re-using an existing map image in place is
-a natural next feature — see below.
+When you re-export your Inkarnate map with new detail, use **Replace image** in
+the editor toolbar: it swaps the image in place and keeps every location.
+Because coordinates are normalized, shapes stay aligned as long as the aspect
+ratio is unchanged (the editor warns you if a new export changes it).
 
 ## Possible next steps
 
-- Replace/re-upload a map image in place (keeps existing boxes).
-- Move/resize existing boxes (drag handles).
+- Move/edit existing polygon vertices (drag handles).
 - Reuse one article across multiple locations, or link between articles.
 - Per-map article search.

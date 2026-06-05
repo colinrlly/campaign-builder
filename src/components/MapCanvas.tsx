@@ -16,6 +16,8 @@ type Props = {
   mode?: "view" | "edit";
   /** In edit mode, whether the polygon-drawing surface is active. */
   drawing?: boolean;
+  /** Hide shape fills/outlines (clickable + hover highlight only). For players. */
+  hideShapes?: boolean;
   selectedId?: string | null;
   onSelect?: (location: Location) => void;
   onDrawComplete?: (points: Point[]) => void;
@@ -75,6 +77,7 @@ export default function MapCanvas({
   locations,
   mode = "view",
   drawing = false,
+  hideShapes = false,
   selectedId = null,
   onSelect,
   onDrawComplete,
@@ -185,7 +188,9 @@ export default function MapCanvas({
     const active = loc.id === selectedId;
     const hovered = loc.id === hoverId;
     if (active) return { fill: "#fbbf24", fillOpacity: 0.3, stroke: "#fbbf24" };
-    if (hovered) return { fill: "#38bdf8", fillOpacity: 0.32, stroke: "#7dd3fc" };
+    if (hovered) return { fill: "#38bdf8", fillOpacity: 0.28, stroke: "#7dd3fc" };
+    // Hidden: transparent but still clickable (pointerEvents "all" below).
+    if (hideShapes) return { fill: "#38bdf8", fillOpacity: 0, stroke: "transparent" };
     return { fill: "#38bdf8", fillOpacity: 0.12, stroke: "#38bdf8" };
   };
 
@@ -247,7 +252,8 @@ export default function MapCanvas({
                       strokeWidth={2}
                       vectorEffect="non-scaling-stroke"
                       style={{
-                        pointerEvents: drawing ? "none" : "auto",
+                        // "all" keeps transparent (hidden) polygons clickable.
+                        pointerEvents: drawing ? "none" : "all",
                         cursor: "pointer",
                       }}
                       onClick={() => onSelect?.(loc)}

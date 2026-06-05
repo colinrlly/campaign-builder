@@ -20,56 +20,81 @@ export default function MapViewer({ map, locations, articles }: Props) {
     return m;
   }, [articles]);
 
+  const sorted = useMemo(
+    () => [...locations].sort((a, b) => a.label.localeCompare(b.label)),
+    [locations],
+  );
+
   const article = selected?.article_id
     ? articleById.get(selected.article_id)
     : undefined;
-  const open = Boolean(selected);
 
   return (
     <div className="flex h-full w-full">
-      {/* Map area shrinks (shifts left) when an article opens. */}
-      <div className="relative min-w-0 flex-1 transition-all duration-500">
+      {/* Map */}
+      <div className="relative min-w-0 flex-1">
         <MapCanvas
           map={map}
           locations={locations}
           mode="view"
+          hideShapes
           selectedId={selected?.id ?? null}
           onSelect={setSelected}
         />
       </div>
 
-      {/* Article panel slides in from the right. */}
-      <aside
-        className="h-full shrink-0 overflow-hidden border-l border-slate-800 bg-[#0e131d] transition-all duration-500 ease-out"
-        style={{ width: open ? "min(40vw, 560px)" : 0 }}
-      >
-        <div
-          className="h-full overflow-y-auto"
-          style={{ width: "min(40vw, 560px)" }}
-        >
-          {selected && (
-            <div className="px-7 py-6">
-              <div className="mb-4 flex items-start justify-between gap-4">
-                <h2 className="text-2xl font-bold">
-                  {article?.title || selected.label}
-                </h2>
-                <button
-                  type="button"
-                  onClick={() => setSelected(null)}
-                  className="shrink-0 rounded-md px-2 py-1 text-slate-400 ring-1 ring-slate-700 hover:bg-slate-800"
-                  title="Close"
-                >
-                  ✕
-                </button>
-              </div>
+      {/* Right panel: location list, or the selected article. */}
+      <aside className="flex h-full w-[360px] shrink-0 flex-col border-l border-slate-800 bg-[#0e131d]">
+        {selected ? (
+          <div className="flex h-full flex-col">
+            <div className="border-b border-slate-800 px-5 py-3">
+              <button
+                type="button"
+                onClick={() => setSelected(null)}
+                className="text-sm text-slate-400 hover:text-slate-200"
+              >
+                ← All locations
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-5">
+              <h2 className="mb-4 text-2xl font-bold">
+                {article?.title || selected.label}
+              </h2>
               {article && article.body_markdown.trim() ? (
                 <MarkdownView markdown={article.body_markdown} />
               ) : (
                 <p className="text-slate-500">No lore written yet.</p>
               )}
             </div>
-          )}
-        </div>
+          </div>
+        ) : (
+          <div className="flex h-full flex-col">
+            <div className="border-b border-slate-800 px-5 py-3">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Locations
+              </h2>
+            </div>
+            <div className="flex-1 overflow-y-auto p-2">
+              {sorted.length === 0 ? (
+                <p className="p-3 text-sm text-slate-500">No locations yet.</p>
+              ) : (
+                <ul>
+                  {sorted.map((l) => (
+                    <li key={l.id}>
+                      <button
+                        type="button"
+                        onClick={() => setSelected(l)}
+                        className="w-full rounded px-3 py-2 text-left text-slate-200 hover:bg-slate-800"
+                      >
+                        {l.label}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
       </aside>
     </div>
   );

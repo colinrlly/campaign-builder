@@ -1,13 +1,30 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { mapImageUrl } from "@/lib/storage";
-import type { Map } from "@/lib/types";
+import type { Article, Location, Map } from "@/lib/types";
+import MapViewer from "@/components/MapViewer";
 
 export const dynamic = "force-dynamic";
 
 const isConfigured = () => Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL);
 
-export default async function Home() {
+/**
+ * Owner = the DM. If NEXT_PUBLIC_OWNER_EMAIL is set, only that account is the
+ * owner; otherwise (single-account setup) any signed-in user is treated as the
+ * owner. Everyone else sees the player view.
+ */
+function computeIsOwner(user: { email?: string } | null): boolean {
+  if (!user) return false;
+  const ownerEmail = process.env.NEXT_PUBLIC_OWNER_EMAIL?.toLowerCase();
+  if (!ownerEmail) return true;
+  return user.email?.toLowerCase() === ownerEmail;
+}
+
+export default async function Home({
+  searchParams,
+}: {
+  searchParams: Promise<{ preview?: string }>;
+}) {
   if (!isConfigured()) {
     return (
       <main className="mx-auto max-w-2xl px-6 py-24">
@@ -23,12 +40,93 @@ export default async function Home() {
   }
 
   const supabase = await createClient();
-  const [{ data }, { data: auth }] = await Promise.all([
-    supabase.from("maps").select("*").order("created_at", { ascending: false }),
-    supabase.auth.getUser(),
-  ]);
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const isOwner = computeIsOwner(user);
+  const preview = (await searchParams).preview === "player";
+
+  // ---- Player view: the map + a location list on the right -----------------
+  if (!isOwner || preview) {
+    const { data: maps } = await supabase
+      .from("maps")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(1);
+    const map = (maps?.[0] as Map | undefined) ?? null;
+
+    if (!map) {
+      return (
+        <main className="flex h-screen flex-col items-center justify-center gap-3 px-6 text-center">
+          <h1 className="text-2xl font-bold">Campaign Builder</h1>
+          <p className="text-slate-400">No maps published yet.</p>
+          {preview ? (
+            <Link href="/" className="text-sm text-amber-300 underline">
+              Exit preview
+            </Link>
+          ) : (
+            !user && (
+              <Link href="/login" className="text-sm text-sky-400 underline">
+                Sign in
+              </Link>
+            )
+          )}
+        </main>
+      );
+    }
+
+    const [{ data: locations }, { data: articles }] = await Promise.all([
+      supabase.from("locations").select("*").eq("map_id", map.id),
+      supabase.from("articles").select("*"),
+    ]);
+
+    return (
+      <main className="flex h-screen flex-col">
+        {preview && (
+          <div className="flex items-center justify-between bg-amber-500/15 px-4 py-1.5 text-xs text-amber-200 ring-1 ring-amber-500/30">
+            <span>Viewing as players</span>
+            <Link href="/" className="underline">
+              Exit preview
+            </Link>
+          </div>
+        )}
+        <header className="flex items-center justify-between border-b border-slate-800 px-5 py-3">
+          <h1 className="text-lg font-semibold">{map.name}</h1>
+          {!user ? (
+            <Link
+              href="/login"
+              className="text-sm text-slate-400 hover:text-slate-200"
+            >
+              Sign in
+            </Link>
+          ) : (
+            !preview && (
+              <Link
+                href="/editor"
+                className="text-sm text-slate-400 hover:text-slate-200"
+              >
+                Editor
+              </Link>
+            )
+          )}
+        </header>
+        <div className="min-h-0 flex-1">
+          <MapViewer
+            map={map}
+            locations={(locations ?? []) as Location[]}
+            articles={(articles ?? []) as Article[]}
+          />
+        </div>
+      </main>
+    );
+  }
+
+  // ---- Owner dashboard -----------------------------------------------------
+  const { data } = await supabase
+    .from("maps")
+    .select("*")
+    .order("created_at", { ascending: false });
   const maps = (data ?? []) as Map[];
-  const signedIn = Boolean(auth.user);
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-12">
@@ -36,21 +134,25 @@ export default async function Home() {
         <h1 className="text-3xl font-bold tracking-tight">Campaign Builder</h1>
         <div className="flex items-center gap-2">
           <Link
-            href={signedIn ? "/editor" : "/login"}
+            href="/?preview=player"
+            className="rounded-md px-3 py-2 text-sm text-slate-300 ring-1 ring-slate-700 hover:bg-slate-800"
+          >
+            View as players
+          </Link>
+          <Link
+            href="/editor"
             className="rounded-md bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500"
           >
-            {signedIn ? "Editor" : "Sign in"}
+            Editor
           </Link>
-          {signedIn && (
-            <form action="/auth/signout" method="post">
-              <button
-                type="submit"
-                className="rounded-md px-3 py-2 text-sm text-slate-300 ring-1 ring-slate-700 hover:bg-slate-800"
-              >
-                Sign out
-              </button>
-            </form>
-          )}
+          <form action="/auth/signout" method="post">
+            <button
+              type="submit"
+              className="rounded-md px-3 py-2 text-sm text-slate-300 ring-1 ring-slate-700 hover:bg-slate-800"
+            >
+              Sign out
+            </button>
+          </form>
         </div>
       </header>
 
@@ -67,7 +169,7 @@ export default async function Home() {
           {maps.map((map) => (
             <li key={map.id}>
               <Link
-                href={`/viewer/${map.id}`}
+                href={`/editor/${map.id}`}
                 className="block overflow-hidden rounded-xl ring-1 ring-slate-700 transition hover:ring-sky-500"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}

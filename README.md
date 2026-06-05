@@ -66,13 +66,13 @@ map, and start drawing locations.
 
 ## Routes
 
-| Route                | Access     | Purpose                                        |
-| -------------------- | ---------- | ---------------------------------------------- |
-| `/`                  | Public     | Gallery of maps                                |
-| `/viewer/[mapId]`    | Public     | Player-facing map + article explorer           |
-| `/login`             | Public     | Editor sign in / sign up                       |
-| `/editor`            | Protected  | Upload maps, manage list                       |
-| `/editor/[mapId]`    | Protected  | Draw boxes, write articles                     |
+| Route                | Access     | Purpose                                              |
+| -------------------- | ---------- | ---------------------------------------------------- |
+| `/`                  | Public     | Player view (latest map + location list) for non-owners; owner dashboard when signed in as the DM. `?preview=player` previews the player view. |
+| `/viewer/[mapId]`    | Public     | Player-facing map + article explorer for a specific map |
+| `/login`             | Public     | Editor sign in / sign up                             |
+| `/editor`            | Protected  | Upload maps, manage list                             |
+| `/editor/[mapId]`    | Protected  | Draw polygons, write articles                        |
 
 `/editor/*` is guarded by middleware that redirects signed-out users to
 `/login`.

@@ -40,12 +40,19 @@ confirmation — the `/auth/confirm` route handles the link.)
 ### 3. Environment variables
 
 Copy `.env.local.example` to `.env.local` and fill in from
-**Project Settings → API**:
+**Project Settings → API Keys**:
 
 ```
 NEXT_PUBLIC_SUPABASE_URL=https://your-ref.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-or-publishable-key
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 ```
+
+Supabase's current key model uses a **publishable** key (`sb_publishable_…`,
+the client-side replacement for the legacy anon key) and a **secret** key
+(`sb_secret_…`, the replacement for `service_role`). This app uses **only the
+publishable key** — it's safe in the browser because all access is enforced by
+RLS. Never add the secret key here. The legacy `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+name still works as a fallback if your tooling sets it.
 
 ### 4. Run
 

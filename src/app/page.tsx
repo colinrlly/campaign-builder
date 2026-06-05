@@ -14,8 +14,8 @@ export default async function Home() {
         <h1 className="text-3xl font-bold">Campaign Builder</h1>
         <p className="mt-4 text-slate-300">
           Set <code className="rounded bg-slate-800 px-1">NEXT_PUBLIC_SUPABASE_URL</code> and{" "}
-          <code className="rounded bg-slate-800 px-1">NEXT_PUBLIC_SUPABASE_ANON_KEY</code> in{" "}
-          <code className="rounded bg-slate-800 px-1">.env.local</code> to get started. See the
+          <code className="rounded bg-slate-800 px-1">NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY</code>{" "}
+          in <code className="rounded bg-slate-800 px-1">.env.local</code> to get started. See the
           README for setup.
         </p>
       </main>

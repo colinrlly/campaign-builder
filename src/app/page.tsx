@@ -23,22 +23,35 @@ export default async function Home() {
   }
 
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("maps")
-    .select("*")
-    .order("created_at", { ascending: false });
+  const [{ data }, { data: auth }] = await Promise.all([
+    supabase.from("maps").select("*").order("created_at", { ascending: false }),
+    supabase.auth.getUser(),
+  ]);
   const maps = (data ?? []) as Map[];
+  const signedIn = Boolean(auth.user);
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-12">
       <header className="mb-10 flex items-center justify-between">
         <h1 className="text-3xl font-bold tracking-tight">Campaign Builder</h1>
-        <Link
-          href="/editor"
-          className="rounded-md bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500"
-        >
-          Editor
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href={signedIn ? "/editor" : "/login"}
+            className="rounded-md bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500"
+          >
+            {signedIn ? "Editor" : "Sign in"}
+          </Link>
+          {signedIn && (
+            <form action="/auth/signout" method="post">
+              <button
+                type="submit"
+                className="rounded-md px-3 py-2 text-sm text-slate-300 ring-1 ring-slate-700 hover:bg-slate-800"
+              >
+                Sign out
+              </button>
+            </form>
+          )}
+        </div>
       </header>
 
       {maps.length === 0 ? (

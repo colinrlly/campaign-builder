@@ -104,8 +104,11 @@ the editor toolbar: it swaps the image in place and keeps every location.
 Because coordinates are normalized, shapes stay aligned as long as the aspect
 ratio is unchanged (the editor warns you if a new export changes it).
 
+Select a location in the editor to edit its shape: drag a vertex to move it,
+drag the shape body to reposition it, click an edge midpoint to add a vertex,
+and double-click a vertex to delete it. Geometry changes save automatically.
+
 ## Possible next steps
 
-- Move/edit existing polygon vertices (drag handles).
 - Reuse one article across multiple locations, or link between articles.
 - Per-map article search.

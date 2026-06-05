@@ -21,8 +21,14 @@ type Props = {
   selectedId?: string | null;
   /** Highlight this location as if hovered (e.g. from an external list). */
   highlightId?: string | null;
+  /** Enable vertex/shape editing of the selected location. */
+  editable?: boolean;
   onSelect?: (location: Location) => void;
   onDrawComplete?: (points: Point[]) => void;
+  /** Live geometry update while dragging (not persisted). */
+  onPointsChange?: (id: string, points: Point[]) => void;
+  /** Geometry change to persist (on drop / add / delete). */
+  onPointsCommit?: (id: string, points: Point[]) => void;
 };
 
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
@@ -82,8 +88,11 @@ export default function MapCanvas({
   hideShapes = false,
   selectedId = null,
   highlightId = null,
+  editable = false,
   onSelect,
   onDrawComplete,
+  onPointsChange,
+  onPointsCommit,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
@@ -93,6 +102,16 @@ export default function MapCanvas({
   // In-progress polygon while drawing.
   const [draft, setDraft] = useState<Point[]>([]);
   const [cursor, setCursor] = useState<Point | null>(null);
+
+  // Active drag of an existing shape's vertex or the whole shape.
+  type Drag = {
+    id: string;
+    kind: "vertex" | "move";
+    index: number;
+    startPts: Point[];
+    startCursor: Point;
+  };
+  const [drag, setDrag] = useState<Drag | null>(null);
 
   const aspect = map.natural_width / map.natural_height;
 
@@ -149,6 +168,99 @@ export default function MapCanvas({
     },
     [onDrawComplete],
   );
+
+  // Compute the new points for the active drag given the current cursor.
+  const dragPoints = useCallback((d: Drag, cur: Point): Point[] => {
+    if (d.kind === "vertex") {
+      return d.startPts.map((p, i) => (i === d.index ? cur : p));
+    }
+    const dx = cur.x - d.startCursor.x;
+    const dy = cur.y - d.startCursor.y;
+    return d.startPts.map((p) => ({
+      x: clamp01(p.x + dx),
+      y: clamp01(p.y + dy),
+    }));
+  }, []);
+
+  // While a drag is active, track pointer globally so it keeps working even if
+  // the cursor leaves the handle. Commit (persist) on release if it moved.
+  useEffect(() => {
+    if (!drag) return;
+    let moved = false;
+    const onMove = (e: PointerEvent) => {
+      moved = true;
+      onPointsChange?.(drag.id, dragPoints(drag, toNormalized(e.clientX, e.clientY)));
+    };
+    const onUp = (e: PointerEvent) => {
+      const pts = dragPoints(drag, toNormalized(e.clientX, e.clientY));
+      setDrag(null);
+      if (moved) onPointsCommit?.(drag.id, pts);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+  }, [drag, dragPoints, onPointsChange, onPointsCommit, toNormalized]);
+
+  const startVertexDrag =
+    (loc: Location, i: number) => (e: React.PointerEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
+      setDrag({
+        id: loc.id,
+        kind: "vertex",
+        index: i,
+        startPts: loc.points,
+        startCursor: toNormalized(e.clientX, e.clientY),
+      });
+    };
+
+  const startMove = (loc: Location) => (e: React.PointerEvent) => {
+    e.stopPropagation();
+    setDrag({
+      id: loc.id,
+      kind: "move",
+      index: -1,
+      startPts: loc.points,
+      startCursor: toNormalized(e.clientX, e.clientY),
+    });
+  };
+
+  // Click an edge midpoint to insert a vertex there, then drag to place it.
+  const startAddVertex =
+    (loc: Location, i: number) => (e: React.PointerEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const cur = loc.points[i];
+      const next = loc.points[(i + 1) % loc.points.length];
+      const mid = { x: (cur.x + next.x) / 2, y: (cur.y + next.y) / 2 };
+      const newPts = [...loc.points.slice(0, i + 1), mid, ...loc.points.slice(i + 1)];
+      onPointsCommit?.(loc.id, newPts); // persist the added vertex immediately
+      setDrag({
+        id: loc.id,
+        kind: "vertex",
+        index: i + 1,
+        startPts: newPts,
+        startCursor: toNormalized(e.clientX, e.clientY),
+      });
+    };
+
+  const deleteVertex = (loc: Location, i: number) => (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (loc.points.length <= 3) return; // keep a valid polygon
+    onPointsCommit?.(
+      loc.id,
+      loc.points.filter((_, idx) => idx !== i),
+    );
+  };
+
+  const editingLoc =
+    editable && !drawing && selectedId
+      ? (locations.find((l) => l.id === selectedId) ?? null)
+      : null;
 
   // Keyboard shortcuts while drawing: Enter closes, Esc cancels, Backspace undo.
   useEffect(() => {
@@ -207,7 +319,7 @@ export default function MapCanvas({
         limitToBounds={false}
         centerOnInit
         doubleClick={{ disabled: true }}
-        panning={{ disabled: drawing }}
+        panning={{ disabled: drawing || !!drag }}
         wheel={{ step: 0.12 }}
       >
         <ZoomControls />
@@ -257,8 +369,14 @@ export default function MapCanvas({
                       style={{
                         // "all" keeps transparent (hidden) polygons clickable.
                         pointerEvents: drawing ? "none" : "all",
-                        cursor: "pointer",
+                        cursor:
+                          editable && loc.id === selectedId ? "move" : "pointer",
                       }}
+                      onPointerDown={
+                        editable && loc.id === selectedId
+                          ? startMove(loc)
+                          : undefined
+                      }
                       onClick={() => onSelect?.(loc)}
                       onMouseEnter={() => setHoverId(loc.id)}
                       onMouseLeave={() =>
@@ -316,6 +434,46 @@ export default function MapCanvas({
                     style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%` }}
                   />
                 ))}
+
+              {/* HTML overlay: edit handles for the selected location. */}
+              {editingLoc && (
+                <>
+                  {/* Midpoint handles (click/drag to add a vertex). */}
+                  {editingLoc.points.map((p, i) => {
+                    const next =
+                      editingLoc.points[(i + 1) % editingLoc.points.length];
+                    const mid = { x: (p.x + next.x) / 2, y: (p.y + next.y) / 2 };
+                    return (
+                      <div
+                        key={`m${i}`}
+                        onPointerDown={startAddVertex(editingLoc, i)}
+                        title="Add point"
+                        className="absolute h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 cursor-copy rounded-full border border-amber-300/70 bg-amber-300/30 hover:bg-amber-300/70"
+                        style={{
+                          left: `${mid.x * 100}%`,
+                          top: `${mid.y * 100}%`,
+                          touchAction: "none",
+                        }}
+                      />
+                    );
+                  })}
+                  {/* Vertex handles (drag to move, double-click to delete). */}
+                  {editingLoc.points.map((p, i) => (
+                    <div
+                      key={`v${i}`}
+                      onPointerDown={startVertexDrag(editingLoc, i)}
+                      onDoubleClick={deleteVertex(editingLoc, i)}
+                      title="Drag to move · double-click to delete"
+                      className="absolute h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 cursor-grab rounded-full border-2 border-amber-300 bg-slate-900 hover:bg-amber-300 active:cursor-grabbing"
+                      style={{
+                        left: `${p.x * 100}%`,
+                        top: `${p.y * 100}%`,
+                        touchAction: "none",
+                      }}
+                    />
+                  ))}
+                </>
+              )}
 
               {/* HTML overlay: label for the hovered/selected location. */}
               {labelFor &&

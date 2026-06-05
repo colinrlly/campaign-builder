@@ -141,6 +141,26 @@ export default function MapEditor({
     }
   }
 
+  // Live geometry update while dragging a vertex/shape (local only).
+  function handlePointsChange(id: string, points: Point[]) {
+    setLocations((ls) => ls.map((l) => (l.id === id ? { ...l, points } : l)));
+  }
+
+  // Persist a geometry change (vertex drop, add, delete, move).
+  async function handlePointsCommit(id: string, points: Point[]) {
+    setLocations((ls) => ls.map((l) => (l.id === id ? { ...l, points } : l)));
+    const { error } = await supabase
+      .from("locations")
+      .update({ points })
+      .eq("id", id);
+    if (error) {
+      setStatus(`Error: ${error.message}`);
+    } else {
+      setStatus("Shape saved ✓");
+      setTimeout(() => setStatus(null), 1200);
+    }
+  }
+
   async function handleSave() {
     if (!selected) return;
     setStatus("Saving…");
@@ -237,9 +257,12 @@ export default function MapEditor({
           locations={locations}
           mode="edit"
           drawing={drawing}
+          editable
           selectedId={selectedId}
           onSelect={(loc) => setSelectedId(loc.id)}
           onDrawComplete={handleDraw}
+          onPointsChange={handlePointsChange}
+          onPointsCommit={handlePointsCommit}
         />
       </div>
 
@@ -271,6 +294,11 @@ export default function MapEditor({
           </div>
         ) : (
           <div className="flex h-full flex-col p-5">
+            <p className="mb-3 rounded bg-slate-800/60 px-3 py-2 text-xs text-slate-400">
+              Drag a point to reshape · drag the shape to move · click a midpoint
+              to add a point · double-click a point to delete. Changes save
+              automatically.
+            </p>
             <label className="mb-3 flex flex-col gap-1 text-sm">
               <span className="text-slate-400">Location label</span>
               <input

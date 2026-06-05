@@ -42,10 +42,14 @@ export default function NewMapForm() {
       const ext = file.name.split(".").pop()?.toLowerCase() || "png";
       const path = `${crypto.randomUUID()}.${ext}`;
 
+      // Surface which step fails (storage RLS vs table RLS) for easier setup.
+      const { data: auth } = await supabase.auth.getUser();
+      if (!auth.user) throw new Error("Not signed in — try signing in again.");
+
       const { error: uploadError } = await supabase.storage
         .from(MAP_BUCKET)
         .upload(path, file, { cacheControl: "3600", upsert: false });
-      if (uploadError) throw uploadError;
+      if (uploadError) throw new Error(`Image upload: ${uploadError.message}`);
 
       const { data, error: insertError } = await supabase
         .from("maps")
@@ -57,7 +61,7 @@ export default function NewMapForm() {
         })
         .select("id")
         .single();
-      if (insertError) throw insertError;
+      if (insertError) throw new Error(`Save map: ${insertError.message}`);
 
       router.push(`/editor/${data.id}`);
       router.refresh();

@@ -32,10 +32,18 @@ write), and a public `maps` storage bucket.
 
 ### 2. Configure auth
 
-In **Authentication → Providers → Email**, enable email. For a single-DM
-setup, the simplest path is to **disable "Confirm email"** so you can create
-your account and sign in immediately. (Leave it on if you prefer email
-confirmation — the `/auth/confirm` route handles the link.)
+In **Authentication → Providers → Email**, enable email. Public sign-ups are
+fine — your party can create accounts and read the world, but **only the owner
+(DM) can edit**. The owner is whoever's email matches `NEXT_PUBLIC_OWNER_EMAIL`
+(app) and `public.is_owner()` (database, set in migration `0004`). Everyone
+else lands on the player view.
+
+Leave "Confirm email" on if you want confirmation links (handled by
+`/auth/confirm`), or off for friction-free sign-ups.
+
+**Two places must agree on the owner email:**
+- `NEXT_PUBLIC_OWNER_EMAIL` in your env (app routing/UI).
+- the email inside `public.is_owner()` in `supabase/migrations/0004_owner_only_writes.sql` (RLS — the real boundary).
 
 ### 3. Environment variables
 

@@ -13,6 +13,7 @@ type Props = {
 
 export default function MapViewer({ map, locations, articles }: Props) {
   const [selected, setSelected] = useState<Location | null>(null);
+  const [hoverId, setHoverId] = useState<string | null>(null);
 
   const articleById = useMemo(() => {
     const m = new globalThis.Map<string, Article>();
@@ -39,6 +40,7 @@ export default function MapViewer({ map, locations, articles }: Props) {
           mode="view"
           hideShapes
           selectedId={selected?.id ?? null}
+          highlightId={hoverId}
           onSelect={setSelected}
         />
       </div>
@@ -84,6 +86,10 @@ export default function MapViewer({ map, locations, articles }: Props) {
                       <button
                         type="button"
                         onClick={() => setSelected(l)}
+                        onMouseEnter={() => setHoverId(l.id)}
+                        onMouseLeave={() =>
+                          setHoverId((h) => (h === l.id ? null : h))
+                        }
                         className="w-full rounded px-3 py-2 text-left text-slate-200 hover:bg-slate-800"
                       >
                         {l.label}

@@ -19,6 +19,8 @@ type Props = {
   /** Hide shape fills/outlines (clickable + hover highlight only). For players. */
   hideShapes?: boolean;
   selectedId?: string | null;
+  /** Highlight this location as if hovered (e.g. from an external list). */
+  highlightId?: string | null;
   onSelect?: (location: Location) => void;
   onDrawComplete?: (points: Point[]) => void;
 };
@@ -79,6 +81,7 @@ export default function MapCanvas({
   drawing = false,
   hideShapes = false,
   selectedId = null,
+  highlightId = null,
   onSelect,
   onDrawComplete,
 }: Props) {
@@ -186,7 +189,7 @@ export default function MapCanvas({
 
   const polygonClasses = (loc: Location) => {
     const active = loc.id === selectedId;
-    const hovered = loc.id === hoverId;
+    const hovered = loc.id === hoverId || loc.id === highlightId;
     if (active) return { fill: "#fbbf24", fillOpacity: 0.3, stroke: "#fbbf24" };
     if (hovered) return { fill: "#38bdf8", fillOpacity: 0.28, stroke: "#7dd3fc" };
     // Hidden: transparent but still clickable (pointerEvents "all" below).
@@ -194,7 +197,7 @@ export default function MapCanvas({
     return { fill: "#38bdf8", fillOpacity: 0.12, stroke: "#38bdf8" };
   };
 
-  const labelFor = selectedId ?? hoverId;
+  const labelFor = selectedId ?? hoverId ?? highlightId;
 
   return (
     <div ref={containerRef} className="relative h-full w-full overflow-hidden">

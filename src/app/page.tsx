@@ -1,24 +1,13 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { mapImageUrl } from "@/lib/storage";
+import { isOwner } from "@/lib/owner";
 import type { Article, Location, Map } from "@/lib/types";
 import MapViewer from "@/components/MapViewer";
 
 export const dynamic = "force-dynamic";
 
 const isConfigured = () => Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL);
-
-/**
- * Owner = the DM. If NEXT_PUBLIC_OWNER_EMAIL is set, only that account is the
- * owner; otherwise (single-account setup) any signed-in user is treated as the
- * owner. Everyone else sees the player view.
- */
-function computeIsOwner(user: { email?: string } | null): boolean {
-  if (!user) return false;
-  const ownerEmail = process.env.NEXT_PUBLIC_OWNER_EMAIL?.toLowerCase();
-  if (!ownerEmail) return true;
-  return user.email?.toLowerCase() === ownerEmail;
-}
 
 export default async function Home({
   searchParams,
@@ -43,11 +32,11 @@ export default async function Home({
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  const isOwner = computeIsOwner(user);
+  const owner = isOwner(user);
   const preview = (await searchParams).preview === "player";
 
   // ---- Player view: the map + a location list on the right -----------------
-  if (!isOwner || preview) {
+  if (!owner || preview) {
     const { data: maps } = await supabase
       .from("maps")
       .select("*")
@@ -99,15 +88,22 @@ export default async function Home({
             >
               Sign in
             </Link>
+          ) : owner ? (
+            <Link
+              href="/editor"
+              className="text-sm text-slate-400 hover:text-slate-200"
+            >
+              Editor
+            </Link>
           ) : (
-            !preview && (
-              <Link
-                href="/editor"
+            <form action="/auth/signout" method="post">
+              <button
+                type="submit"
                 className="text-sm text-slate-400 hover:text-slate-200"
               >
-                Editor
-              </Link>
-            )
+                Sign out
+              </button>
+            </form>
           )}
         </header>
         <div className="min-h-0 flex-1">

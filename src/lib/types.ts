@@ -14,22 +14,19 @@ export type Article = {
   updated_at: string;
 };
 
+/** A point as fractions of the natural image (each in [0, 1]). */
+export type Point = { x: number; y: number };
+
 /**
- * A clickable region on a map. The bounding box is stored as fractions of the
- * natural image dimensions (each value in [0, 1]) so it stays correct at any
- * zoom level, screen size, or re-export of the same map.
+ * A clickable region on a map, defined by a polygon of normalized points
+ * (each coordinate in [0, 1]). Normalized coords stay correct at any zoom
+ * level, screen size, or re-export of the same map.
  */
 export type Location = {
   id: string;
   map_id: string;
   article_id: string | null;
   label: string;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
+  points: Point[];
   created_at: string;
 };
-
-/** A normalized bounding box (fractions of the natural image, 0..1). */
-export type Box = { x: number; y: number; w: number; h: number };

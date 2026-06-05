@@ -6,7 +6,7 @@ import {
   TransformComponent,
   useControls,
 } from "react-zoom-pan-pinch";
-import type { Box, Location, Map } from "@/lib/types";
+import type { Location, Map, Point } from "@/lib/types";
 import { mapImageUrl } from "@/lib/storage";
 
 type Props = {
@@ -14,24 +14,36 @@ type Props = {
   locations: Location[];
   /** "edit" enables draw-to-create; "view" is read-only/clickable. */
   mode?: "view" | "edit";
-  /** In edit mode, whether the draw-new-box surface is active. */
+  /** In edit mode, whether the polygon-drawing surface is active. */
   drawing?: boolean;
   selectedId?: string | null;
   onSelect?: (location: Location) => void;
-  onDrawComplete?: (box: Box) => void;
+  onDrawComplete?: (points: Point[]) => void;
 };
 
-/** Clamp a value to the [0, 1] range. */
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 
-/** Build a normalized box from two corner points, with positive w/h. */
-function boxFromCorners(ax: number, ay: number, bx: number, by: number): Box {
-  return {
-    x: Math.min(ax, bx),
-    y: Math.min(ay, by),
-    w: Math.abs(bx - ax),
-    h: Math.abs(by - ay),
-  };
+/** Average of the points — good enough for placing a label. */
+function centroid(points: Point[]): Point {
+  if (points.length === 0) return { x: 0.5, y: 0.5 };
+  const sum = points.reduce(
+    (acc, p) => ({ x: acc.x + p.x, y: acc.y + p.y }),
+    { x: 0, y: 0 },
+  );
+  return { x: sum.x / points.length, y: sum.y / points.length };
+}
+
+const ptsToString = (points: Point[]) =>
+  points.map((p) => `${p.x},${p.y}`).join(" ");
+
+/** Drop consecutive points that are within epsilon (e.g. a double-click). */
+function dedupe(points: Point[], eps = 0.004): Point[] {
+  const out: Point[] = [];
+  for (const p of points) {
+    const last = out[out.length - 1];
+    if (!last || Math.hypot(p.x - last.x, p.y - last.y) > eps) out.push(p);
+  }
+  return out;
 }
 
 function ZoomControls() {
@@ -70,14 +82,17 @@ export default function MapCanvas({
   const containerRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const [fit, setFit] = useState<{ w: number; h: number } | null>(null);
-  const [preview, setPreview] = useState<Box | null>(null);
-  const dragStart = useRef<{ x: number; y: number } | null>(null);
+  const [hoverId, setHoverId] = useState<string | null>(null);
+
+  // In-progress polygon while drawing.
+  const [draft, setDraft] = useState<Point[]>([]);
+  const [cursor, setCursor] = useState<Point | null>(null);
 
   const aspect = map.natural_width / map.natural_height;
 
-  // Fit the image inside the available container (contain), recomputing on
-  // resize. The frame is sized to the exact rendered image rect so the
-  // percentage-positioned overlay always lines up with the image.
+  // Fit the image inside the container (contain), recomputing on resize. The
+  // frame is sized to the exact rendered image rect so percentage/normalized
+  // overlays always line up with the image.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -85,9 +100,8 @@ export default function MapCanvas({
       const cw = el.clientWidth;
       const ch = el.clientHeight;
       if (cw === 0 || ch === 0) return;
-      const containerAspect = cw / ch;
       let w: number, h: number;
-      if (containerAspect > aspect) {
+      if (cw / ch > aspect) {
         h = ch;
         w = h * aspect;
       } else {
@@ -102,9 +116,17 @@ export default function MapCanvas({
     return () => ro.disconnect();
   }, [aspect]);
 
+  // Reset the draft whenever drawing is toggled off.
+  useEffect(() => {
+    if (!drawing) {
+      setDraft([]);
+      setCursor(null);
+    }
+  }, [drawing]);
+
   // Convert a pointer event to normalized [0,1] coords using the frame's live
   // bounding rect, which already reflects the current zoom/pan transform.
-  const toNormalized = useCallback((clientX: number, clientY: number) => {
+  const toNormalized = useCallback((clientX: number, clientY: number): Point => {
     const rect = frameRef.current!.getBoundingClientRect();
     return {
       x: clamp01((clientX - rect.left) / rect.width),
@@ -112,30 +134,62 @@ export default function MapCanvas({
     };
   }, []);
 
-  const onPointerDown = (e: React.PointerEvent) => {
+  const finish = useCallback(
+    (pts: Point[]) => {
+      const clean = dedupe(pts);
+      setDraft([]);
+      setCursor(null);
+      if (clean.length >= 3) onDrawComplete?.(clean);
+    },
+    [onDrawComplete],
+  );
+
+  // Keyboard shortcuts while drawing: Enter closes, Esc cancels, Backspace undo.
+  useEffect(() => {
     if (!drawing) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
-    const p = toNormalized(e.clientX, e.clientY);
-    dragStart.current = p;
-    setPreview({ x: p.x, y: p.y, w: 0, h: 0 });
-  };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        finish(draft);
+      } else if (e.key === "Escape") {
+        setDraft([]);
+        setCursor(null);
+      } else if (e.key === "Backspace") {
+        e.preventDefault();
+        setDraft((d) => d.slice(0, -1));
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [drawing, draft, finish]);
 
-  const onPointerMove = (e: React.PointerEvent) => {
-    if (!drawing || !dragStart.current) return;
+  const handleSurfaceClick = (e: React.MouseEvent) => {
     const p = toNormalized(e.clientX, e.clientY);
-    setPreview(boxFromCorners(dragStart.current.x, dragStart.current.y, p.x, p.y));
-  };
-
-  const onPointerUp = () => {
-    if (!drawing || !dragStart.current) return;
-    const box = preview;
-    dragStart.current = null;
-    setPreview(null);
-    // Ignore accidental clicks; require a meaningful box.
-    if (box && box.w > 0.005 && box.h > 0.005) {
-      onDrawComplete?.(box);
+    // Close if clicking near the first vertex (within ~12px on screen).
+    if (draft.length >= 3) {
+      const rect = frameRef.current!.getBoundingClientRect();
+      const first = draft[0];
+      const dpx = Math.hypot(
+        (p.x - first.x) * rect.width,
+        (p.y - first.y) * rect.height,
+      );
+      if (dpx < 12) {
+        finish(draft);
+        return;
+      }
     }
+    setDraft((d) => [...d, p]);
   };
+
+  const polygonClasses = (loc: Location) => {
+    const active = loc.id === selectedId;
+    const hovered = loc.id === hoverId;
+    if (active) return { fill: "#fbbf24", fillOpacity: 0.3, stroke: "#fbbf24" };
+    if (hovered) return { fill: "#38bdf8", fillOpacity: 0.32, stroke: "#7dd3fc" };
+    return { fill: "#38bdf8", fillOpacity: 0.12, stroke: "#38bdf8" };
+  };
+
+  const labelFor = selectedId ?? hoverId;
 
   return (
     <div ref={containerRef} className="relative h-full w-full overflow-hidden">
@@ -173,63 +227,113 @@ export default function MapCanvas({
                 className="block h-full w-full"
               />
 
-              {/* Location boxes (clickable when not actively drawing). */}
-              <div className="pointer-events-none absolute inset-0">
+              {/* SVG overlay: existing polygons + in-progress draft. */}
+              <svg
+                className="absolute inset-0 h-full w-full"
+                viewBox="0 0 1 1"
+                preserveAspectRatio="none"
+                style={{ pointerEvents: "none", overflow: "visible" }}
+              >
                 {locations.map((loc) => {
-                  const active = loc.id === selectedId;
+                  if (!loc.points || loc.points.length < 3) return null;
+                  const c = polygonClasses(loc);
                   return (
-                    <button
+                    <polygon
                       key={loc.id}
-                      type="button"
-                      onClick={() => onSelect?.(loc)}
+                      points={ptsToString(loc.points)}
+                      fill={c.fill}
+                      fillOpacity={c.fillOpacity}
+                      stroke={c.stroke}
+                      strokeWidth={2}
+                      vectorEffect="non-scaling-stroke"
                       style={{
-                        left: `${loc.x * 100}%`,
-                        top: `${loc.y * 100}%`,
-                        width: `${loc.w * 100}%`,
-                        height: `${loc.h * 100}%`,
+                        pointerEvents: drawing ? "none" : "auto",
+                        cursor: "pointer",
                       }}
-                      className={[
-                        "group pointer-events-auto absolute rounded-sm border-2 transition-colors",
-                        active
-                          ? "border-amber-400 bg-amber-400/25"
-                          : "border-sky-400/80 bg-sky-400/10 hover:bg-sky-400/25",
-                        drawing ? "pointer-events-none" : "",
-                      ].join(" ")}
-                      title={loc.label}
-                    >
-                      <span className="pointer-events-none absolute -top-6 left-0 whitespace-nowrap rounded bg-slate-900/90 px-1.5 py-0.5 text-xs text-slate-100 opacity-0 ring-1 ring-slate-600 transition-opacity group-hover:opacity-100">
-                        {loc.label}
-                      </span>
-                    </button>
+                      onClick={() => onSelect?.(loc)}
+                      onMouseEnter={() => setHoverId(loc.id)}
+                      onMouseLeave={() =>
+                        setHoverId((h) => (h === loc.id ? null : h))
+                      }
+                    />
                   );
                 })}
-              </div>
 
-              {/* Drawing surface (only in edit mode while drawing). */}
-              {drawing && (
-                <div
-                  className="absolute inset-0 cursor-crosshair"
-                  onPointerDown={onPointerDown}
-                  onPointerMove={onPointerMove}
-                  onPointerUp={onPointerUp}
-                >
-                  {preview && (
-                    <div
-                      className="absolute rounded-sm border-2 border-amber-300 bg-amber-300/25"
-                      style={{
-                        left: `${preview.x * 100}%`,
-                        top: `${preview.y * 100}%`,
-                        width: `${preview.w * 100}%`,
-                        height: `${preview.h * 100}%`,
-                      }}
+                {/* Drawing surface + draft graphics. */}
+                {drawing && (
+                  <>
+                    <rect
+                      x={0}
+                      y={0}
+                      width={1}
+                      height={1}
+                      fill="transparent"
+                      style={{ pointerEvents: "auto", cursor: "crosshair" }}
+                      onClick={handleSurfaceClick}
+                      onDoubleClick={() => finish(draft)}
+                      onMouseMove={(e) =>
+                        setCursor(toNormalized(e.clientX, e.clientY))
+                      }
+                      onMouseLeave={() => setCursor(null)}
                     />
-                  )}
-                </div>
-              )}
+                    {draft.length > 0 && (
+                      <polyline
+                        points={ptsToString(
+                          cursor ? [...draft, cursor] : draft,
+                        )}
+                        fill={draft.length >= 3 ? "#fde68a" : "none"}
+                        fillOpacity={0.2}
+                        stroke="#fbbf24"
+                        strokeWidth={2}
+                        strokeDasharray="4 3"
+                        vectorEffect="non-scaling-stroke"
+                      />
+                    )}
+                  </>
+                )}
+              </svg>
+
+              {/* HTML overlay: draft vertices (crisp, fixed-size dots). */}
+              {drawing &&
+                draft.map((p, i) => (
+                  <div
+                    key={i}
+                    className={[
+                      "pointer-events-none absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2",
+                      i === 0
+                        ? "border-amber-300 bg-amber-300 ring-2 ring-amber-300/40"
+                        : "border-amber-400 bg-slate-900",
+                    ].join(" ")}
+                    style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%` }}
+                  />
+                ))}
+
+              {/* HTML overlay: label for the hovered/selected location. */}
+              {labelFor &&
+                (() => {
+                  const loc = locations.find((l) => l.id === labelFor);
+                  if (!loc || loc.points.length < 3) return null;
+                  const c = centroid(loc.points);
+                  return (
+                    <span
+                      className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded bg-slate-900/90 px-1.5 py-0.5 text-xs text-slate-100 ring-1 ring-slate-600"
+                      style={{ left: `${c.x * 100}%`, top: `${c.y * 100}%` }}
+                    >
+                      {loc.label}
+                    </span>
+                  );
+                })()}
             </div>
           )}
         </TransformComponent>
       </TransformWrapper>
+
+      {drawing && (
+        <div className="pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-md bg-slate-900/90 px-3 py-1.5 text-xs text-slate-200 ring-1 ring-slate-700">
+          Click to add points · click the first point or press Enter to close ·
+          Esc to cancel
+        </div>
+      )}
     </div>
   );
 }

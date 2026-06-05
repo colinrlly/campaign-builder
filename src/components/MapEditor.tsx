@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { Article, Box, Location, Map } from "@/lib/types";
+import type { Article, Location, Map, Point } from "@/lib/types";
 import MapCanvas from "./MapCanvas";
 import MarkdownView from "./MarkdownView";
 
@@ -48,7 +48,7 @@ export default function MapEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
-  async function handleDraw(box: Box) {
+  async function handleDraw(points: Point[]) {
     setStatus("Creating…");
     // Each location gets its own article (1:1).
     const { data: article, error: aErr } = await supabase
@@ -67,10 +67,7 @@ export default function MapEditor({
         map_id: map.id,
         article_id: article.id,
         label: "New location",
-        x: box.x,
-        y: box.y,
-        w: box.w,
-        h: box.h,
+        points,
       })
       .select("*")
       .single();
@@ -151,7 +148,7 @@ export default function MapEditor({
                 : "bg-slate-800/90 text-slate-100 ring-slate-600 hover:bg-slate-700",
             ].join(" ")}
           >
-            {drawing ? "Drawing… (click + drag)" : "Draw location"}
+            {drawing ? "Drawing… (click points)" : "Draw location"}
           </button>
           {status && (
             <span className="rounded bg-slate-900/90 px-2 py-1 text-xs text-slate-300 ring-1 ring-slate-700">
@@ -176,8 +173,9 @@ export default function MapEditor({
           <div className="p-6 text-sm text-slate-400">
             <p className="font-medium text-slate-200">No location selected</p>
             <p className="mt-2">
-              Click <strong>Draw location</strong>, then click and drag a box on
-              the map to mark a place. Or click an existing box to edit it.
+              Click <strong>Draw location</strong>, then click points around a
+              place to outline it; click the first point (or press Enter) to
+              close the shape. Or click an existing shape to edit it.
             </p>
             {locations.length > 0 && (
               <ul className="mt-5 space-y-1">

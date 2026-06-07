@@ -58,6 +58,39 @@ export default function MapEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
+  // Unsaved-changes tracking for the selected article (geometry auto-saves and
+  // is not counted here).
+  const dirty =
+    !!selected &&
+    (label !== selected.label ||
+      title !== (selectedArticle?.title ?? "") ||
+      body !== (selectedArticle?.body_markdown ?? ""));
+
+  // Warn on tab close / refresh / full navigation while there are edits.
+  useEffect(() => {
+    if (!dirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [dirty]);
+
+  // Guard in-editor selection changes so edits aren't silently lost.
+  function selectLocation(id: string | null) {
+    if (id === selectedId) return;
+    if (
+      dirty &&
+      !window.confirm(
+        "You have unsaved changes to this article. Leave without saving?",
+      )
+    ) {
+      return;
+    }
+    setSelectedId(id);
+  }
+
   async function handleDraw(points: Point[]) {
     setStatus("Creating…");
     // Each location gets its own article (1:1).
@@ -259,7 +292,7 @@ export default function MapEditor({
           drawing={drawing}
           editable
           selectedId={selectedId}
-          onSelect={(loc) => setSelectedId(loc.id)}
+          onSelect={(loc) => selectLocation(loc.id)}
           onDrawComplete={handleDraw}
           onPointsChange={handlePointsChange}
           onPointsCommit={handlePointsCommit}
@@ -282,7 +315,7 @@ export default function MapEditor({
                   <li key={l.id}>
                     <button
                       type="button"
-                      onClick={() => setSelectedId(l.id)}
+                      onClick={() => selectLocation(l.id)}
                       className="w-full rounded px-2 py-1 text-left text-slate-300 hover:bg-slate-800"
                     >
                       {l.label}
@@ -352,7 +385,10 @@ export default function MapEditor({
               </div>
             )}
 
-            <div className="mt-4 flex items-center gap-2">
+            {dirty && (
+              <p className="mt-3 text-xs text-amber-300">● Unsaved changes</p>
+            )}
+            <div className="mt-2 flex items-center gap-2">
               <button
                 type="button"
                 onClick={handleSave}
@@ -362,7 +398,7 @@ export default function MapEditor({
               </button>
               <button
                 type="button"
-                onClick={() => setSelectedId(null)}
+                onClick={() => selectLocation(null)}
                 className="rounded-md px-3 py-2 text-sm text-slate-300 ring-1 ring-slate-700 hover:bg-slate-800"
               >
                 Close
